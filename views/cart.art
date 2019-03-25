@@ -1,0 +1,231 @@
+{{extend './lauout/common.art'}}
+{{block 'styles'}}
+<link rel="stylesheet" href="/assets/css/page-cart.css">
+{{/block}}
+{{block 'script'}}
+<script type="text/template" id="list">
+    <? for(var i = 0; i < list.length; i++){ ?>
+        <? var item = list[i] ?>
+    <ul class="goods-list yui3-g">
+        <!-- data-id="<?=item.id?>" 自定义属性 -->
+        <li class="yui3-u-1-24"><input type="checkbox" data-id="<?=item.id?>"></li>
+        <li class="yui3-u-12-24">
+            <div class="good-item">
+                <div class="item-img">
+                    <a href="/item/<?=item.id?>"><img src="<?=item.thumbnail?>"></a>
+                </div>
+                <div class="item-msg">
+                    <a href="/item/<?=item.id?>"><?=item.name?></a>
+                </div>
+            </div>
+        </li>
+
+        <li class="yui3-u-3-24">
+            <span class="price">￥<?=item.price?></span>
+        </li>
+        <li class="yui3-u-3-24">
+            <a href="javascript:;" class="increment mins">-</a>
+            <input readonly autocomplete="off" type="text" value="<?=item.num?>" data-id="<?=item.id?>"
+            data-max="<?=item.amount?>" class="itxt">
+            <a href="javascript:;" class="increment plus">+</a>
+        </li>
+        <li class="yui3-u-4-24">
+                <!-- toFixed(2)显示两位小数 -->
+            <span class="sum">￥<?=(item.num*item.price).toFixed(2)?></span>
+        </li>
+        <li class="yui3-u-1-24">
+            <a href="javascript:;" data-id="<?=item.id?>" class="btn_remove">删除</a>
+        </li>
+    </ul>
+    <? } ?>
+
+</script>
+<script src="/assets/js/template-web.js"></script>
+<script>
+    $(function () {
+        // 封装计算总金额和总数量
+        var calc = function () {
+            // 1.获取全部选中的input  不包含头部
+            var $checkedInputList = $('.cart-list [type="checkbox"]:checked')
+            // 2.根据当前的选中的商品，找数量和单价，操作DOM比较麻烦，可以根据数据获取，在渲染的时候作数据缓存window.list，遍历
+            // 3.一定需要知道商品的id  data-id
+            // <!-- data-id="<?=item.id?>" 自定义属性 -->
+            // <li class="yui3-u-1-24"><input type="checkbox" data-id="<?=item.id?>"></li>
+            var count = 0 //数量
+            var total = 0 //金额
+            $checkedInputList.each(function (i, item) {
+                var id = item.dataset.id //获取自定义属性
+                // 单价和数量在每个商品中，如果遍历的list中的商品id==被选中的input里面的id,就取出
+                var product = list.find((item, i) => item.id == id)
+                count += product.num
+                total += product.num * product.price
+            })
+            // 4.计算 渲染
+            $('strong').html(count)
+            $('.summoney').html("￥" + total.toFixed(2))
+        }
+
+        // 修改模板引擎的解析规则
+        // <% js语法 %>  =>  <? js语法 %?> 问号也是正则表达式的符号，需要转义
+        template.defaults.rules[0].test = /<\?(#?)((?:==|=#|[=-])?)[ \t]*([\w\W]*?)[ \t]*(-?)\?>/;
+        /** 1. 获取购物车数据，并渲染*/
+        $.get(`/cart/list`, function (data) {
+            // console.log(data);
+            /**2. 渲染，前端使用模板引擎渲染，*/
+            // 2.1 准备数据 data
+            // 2.2 准备模板 cart.art是后端模板，在响应客户端之前会解析
+            // 2.3 前端模板是script标签，类型是text/template，指定ID
+            // 2.4 调用模板函数，返回HTML格式的字符串
+            var html = template('list', data)
+            // console.log(html);
+            // 2.5 如果前后端同时使用art-template模板引擎，修改art-template解析语法
+            // 做数据缓存，方便以后操作(获取价格和数量)
+            window.list = data.list
+            $('.cart-list').html(html)
+        })
+        /**2. 单选功能*/
+        // change，改变时触发
+        $('.cart-list').on('change', '[type="checkbox"]', function () {
+            //1.进行全选的判断
+            // 被选中的和列表的长度作比较
+            const checkedLen = $('.cart-list [type="checkbox"]:checked').length
+            const listLen = $('.cart-list > ul').length
+            $('.cart-th [type="checkbox"]').prop('checked', checkedLen === listLen)
+            //2.计算总数量和总价格
+            calc()
+        })
+        /**3. 全选*/
+        $('.cart-th').on('change', '[type="checkbox"]', function () {
+            $('.cart-list [type="checkbox"]').prop('checked', $(this).prop('checked'))
+            calc()
+        })
+        /**4. 修改数量，需要前后交互，调用接口*/
+        // 不能直接给加减按钮绑定事件，因为模板是动态生成的，
+        $('.cart-list').on('click', '.increment', function () {
+            // console.log(this.className);
+            // 获取当前的value值
+            var $input = $(this).siblings('input')
+            var num = $input.val()
+            var max = $input.data('max')
+            var id = $input.data('id')
+
+            if ($(this).hasClass('mins')) {
+                // 减
+                if (num < 2) return false
+                num--
+            } else {
+                // 加，如果大于库存，就不加了
+                if (num >= max) return false
+                num++
+            }
+            // 测试效果
+            // $input.val(num)
+            // 发接口给后台，修改数量
+            $.post('/cart/edit', {
+                id,
+                num
+            }, (data) => {
+                if (data.code === 200) {
+                    // 操作成功
+                    // 1.修改数量
+                    $input.val(num)
+                    // 2.修改小计
+                    // 现在修改的商品
+                    var product = list.find((item, i) => item.id == id)
+                    product.num = num //把现在修改的商品的num改成改了之后的num
+                    // $(this)这个this是ajax对象，我们需要的是上一个this才是加减按钮，所以这里function(data){}改成箭头函数
+                    $(this).parent().next().find('span').html('￥' + (product.num * product.price).toFixed(2))
+                    // 3.修改总数量和总价格
+                    // 4.修改头部购物车商品数量
+                    $('.shopnum').html(list.reduce((prev,item)=>prev+parseInt(item.num),0))
+                    calc()
+                } else {
+                    // 不成功
+                    alert(data.msg)
+                }
+            })
+        })
+        /**5. 删除，需要前后交互，调用接口*/
+        $('.cart-list').on('click','.btn_remove',function () {
+            // 删除需要调接口，需要id
+            const id=this.dataset.id
+            $.post(`/cart/remove`,{id}, (data)=> {
+                if(data.code===200){
+                    // 操作成功
+                    // 1.更新列表
+                    // 删除所对应的行，即ul
+                    $(this).parents('.goods-list').remove()
+                    // 补充list数据操作
+                    list.splice(list.findIndex((item,i)=>item.id==id),1)
+                    // 2.更新总数量和总价格
+                    calc()
+                     // 3.修改头部购物车商品数量
+                     $('.shopnum').html(list.reduce((prev,item)=>prev+parseInt(item.num),0))
+                    //  修改头部列表
+                    $('.shopcarlist ul').html(list.reduce((prev,item)=>prev+`<li>${item.name}</li>`,''))
+                }else{
+                    alert(data.msg)
+                }
+            })
+        })
+        /**6. 结算*/
+        $('.sum-btn').on('click',function () {
+            // 跳转地址为 /order/add?items=12,13
+            // location.href=`/order/add?items=`+选中的商品id
+            const items=[]
+            $('.cart-list [type="checkbox"]:checked').each(function () {
+                items.push(this.dataset.id)
+            })
+            // 如果没有选择商品，则阻止跳转
+            if(!items.length) return
+            location.href=`/order/add?items=`+items.join(',')
+
+        })
+    }) 
+</script>
+{{/block}}
+{{block 'content'}}
+<div class="py-container">
+    <div class="allgoods">
+        <br>
+        <!-- 提示信息 -->
+        {{if !user}}
+        <div class="sui-msg msg-large msg-block msg-tips">
+            <!-- 这样点击登录的时候，可以带上返回的页面地址 -->
+            <div class="msg-con"> 您还没有登录！登录后购物车的商品将保存到您账号中 <a href="/login?returnUrl=/cart" class="sui-btn btn-danger">立即登录</a></div>
+            <s class="msg-icon"></s>
+        </div>
+        {{/if}}
+        <div class="cart-main">
+            <div class="yui3-g cart-th">
+                <div class="yui3-u-1-24"><input type="checkbox" name="" id=""></div>
+                <div class="yui3-u-12-24">商品</div>
+                <div class="yui3-u-3-24">单价（元）</div>
+                <div class="yui3-u-3-24">数量</div>
+                <div class="yui3-u-4-24">小计（元）</div>
+                <div class="yui3-u-1-24">操作</div>
+            </div>
+            <div class="cart-item-list">
+                <div class="cart-body">
+                    <div class="cart-list">
+
+                        <!-- 前端渲染的列表 -->
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="cart-tool">
+            <div class="money-box">
+                <div class="sumprice">
+                    <span><strong>0</strong> 件商品</span><br>
+                    <span><em>总价（不含运费）：</em><i class="summoney">0.00</i></span>
+                </div>
+                <div class="sumbtn">
+                    <a class="sum-btn" href="javascript:;">结算</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{{/block}}
